@@ -1,0 +1,11 @@
+GeoNames geographical database
+Source: https://www.geonames.org/
+Data download: https://download.geonames.org/export/dump/
+
+The GeoNames data is licensed under the Creative Commons Attribution 4.0
+International License (CC BY 4.0):
+https://creativecommons.org/licenses/by/4.0/
+
+This product includes a derived subset of the GeoNames alternateNamesV2 data
+file. The subset contains current Simplified Chinese and English names for
+places referenced by the bundled cities500, admin1, and admin2 datasets.

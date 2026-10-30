@@ -30,3 +30,19 @@ credentials*
 
 # Pigeon/Flutter can regenerate iOS stubs, Android export excludes them
 /mobile/ios/
+
+# Server and web local dependencies / runtime data
+**/node_modules/
+**/dist/
+**/coverage/
+**/.svelte-kit/
+**/.pnpm-store/
+**/__pycache__/
+*.pyc
+*.tsbuildinfo
+/server/upload/
+/server/uploads/
+/server/www/
+/deployment/
+*.sqlite*
+*.db

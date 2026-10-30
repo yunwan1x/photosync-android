@@ -1,6 +1,6 @@
-# PhotoSync Android
+# PhotoSync — Android 与服务端
 
-从 Photos（Immich fork）提取的 Android 客户端源码。只保留生成 APK 需要的客户端、Android 原生代码、本地 SDK/UI 依赖、翻译、字体、素材及相关客户端测试，不包含服务端、Web、iOS 工程或旧测试环境。
+从 Photos（Immich fork）提取的 Android 客户端及完整服务端源码，包含 Web、机器学习、API SDK、Docker 定义和自动化测试。仓库名称保留 photosync-android；不包含生产数据、密钥、iOS 工程或旧测试环境。
 
 ## 构建环境
 
@@ -37,3 +37,22 @@ mise exec -- flutter build apk --release --target-platform android-arm64 --split
 - `UPSTREAM.md`、`LICENSE`：来源和 AGPL-3.0 许可证。
 
 Android 显示版本使用日期构建号；当前为 **2026100804**。不包含业务数据、账号、生产配置、SDK 安装目录、APK 或旧 Git 历史。
+
+## 服务端
+
+- `server/`：Immich API、后台任务、PostgreSQL / SQLite、上传与断点续传。
+- `web/`：配套 Web 客户端；`packages/`：共享 SDK、CLI、插件。
+- `machine-learning/`：可选机器学习服务。
+- `docker/`：容器定义；`e2e/`：集成测试；`open-api/`：API 规范。
+- Node 24.15.0、pnpm 11.6.0，版本见根目录 mise.toml。
+
+```bash
+pnpm --filter @immich/sdk --filter @immich/plugin-sdk --filter immich --filter immich-web install --frozen-lockfile
+pnpm --filter @immich/sdk --filter @immich/plugin-sdk build
+pnpm --filter immich build
+pnpm --filter immich test --run
+pnpm --filter immich-web build
+docker build --file server/Dockerfile --tag changhui/photosync:latest .
+```
+
+服务端 Docker 构建上下文必须是仓库根目录。测试不得绑定生产数据目录。上游端到端媒体数据集为独立仓库 https://github.com/immich-app/test-assets，不包含在当前导出中，运行相关测试前需按上游版本准备。测试结论记录在 FULLSTACK_VALIDATION.md。
