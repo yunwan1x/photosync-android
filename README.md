@@ -56,3 +56,13 @@ docker build --file server/Dockerfile --tag changhui/photosync:latest .
 ```
 
 服务端 Docker 构建上下文必须是仓库根目录。测试不得绑定生产数据目录。上游端到端媒体数据集为独立仓库 https://github.com/immich-app/test-assets，不包含在当前导出中，运行相关测试前需按上游版本准备。测试结论记录在 FULLSTACK_VALIDATION.md。
+
+## GitHub Actions 与 Release
+
+在 Actions → Build and release PhotoSync → Run workflow 填写 tag（例如 `v2026.10.30.1`）和递增的 Android 日期 build number（例如 `2026103001`）。也可推送同格式版本标签触发。普通分支提交不自动构建。
+
+三个组件分别构建：Android arm64 release APK、linux/amd64 服务端镜像 `changhui/photosync:latest`、CPU ML 镜像 `changhui/photosync-machine-learning:latest`。ML 包含并验证默认模型。全部任务成功后才发布 GitHub Release；失败保留草稿。Release 附 APK、SHA256SUMS、两个镜像摘要 JSON；无需把大型镜像重复存为 Actions artifact。
+
+所需仓库 Secrets：`DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`、`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`、`ANDROID_STORE_PASSWORD`。签名必须延续现有密钥，不允许缺少密钥时自动使用临时签名。APK 当前沿用已有开发签名。不要在日志输出 Secrets。
+
+流程只构建、测试、推送镜像和创建 Release，不连接或替换 NAS / 服务器上的服务。使用标准 Ubuntu runner，不上传 Actions 构建缓存或 Docker tar 包；私有仓库仍消耗账号的 Actions 免费分钟额度，超额计费取决于账号预算。

@@ -27,3 +27,9 @@
 - 服务端镜像使用 server/Dockerfile，以仓库根目录为上下文；发布仓库 changhui/photosync:latest。
 - 测试使用独立容器、端口、数据目录，不触及生产相册；未经明确授权不替换线上服务。
 - 服务端源代码上传 GitHub 不代表发布镜像。
+
+## GitHub 发布
+
+- GitHub Actions 仅由手动或版本标签触发；所有组件成功后才发布 Release。
+- APK 签名密钥必须从 Secrets 提供，不允许正式流程回退到临时签名。
+- 发布固定 latest 镜像标签并附精确 digest，不自动替换生产容器。
