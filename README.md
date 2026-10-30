@@ -4,7 +4,7 @@
 
 ## 构建环境
 
-- Linux x86_64，建议 8 GiB 内存和至少 15 GiB 空间。
+- Linux x86_64，建议 8 GiB 内存和至少 15 GiB 空间。release 压缩保持项目默认 4 GiB Gradle 堆内存，2 GiB 不足以完成 R8 压缩。
 - [mise](https://mise.jdx.dev/)、Python 3、Git、Android SDK command-line tools。
 - Flutter **3.44.1**、Java **21.0.2**（mise 配置已固定）。
 - Android platform **36**；接受 Android SDK 许可证，安装 Flutter 所需的 NDK/CMake。Gradle/AGP/Kotlin 版本由 Android 工程固定。
