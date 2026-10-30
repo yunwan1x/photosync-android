@@ -47,7 +47,7 @@ jobs:
           echo "build_number=$number" >> "$GITHUB_OUTPUT"
           if gh release view "$tag" --json isDraft > /tmp/release-state.json 2>/dev/null; then
             jq -e '.isDraft == true' /tmp/release-state.json >/dev/null || { echo 'Published releases cannot be overwritten'; exit 1; }
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$tag" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            gh release edit "$tag" --target "$GITHUB_SHA"
           else
             gh release create "$tag" --target "$GITHUB_SHA" --draft --title "PhotoSync $tag" --notes 'Build in progress. The release is published only after all three components pass.'
           fi
