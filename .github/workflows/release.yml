@@ -222,7 +222,11 @@ jobs:
         run: |
           # Flutter tests register dev-only integration_test; regenerate production
           # registration and run release native tests before Flutter tests.
-          mise exec -- flutter build apk --release --target-platform android-arm64 --split-per-abi --config-only --no-pub
+          mise exec -- flutter build apk --release --target-platform android-arm64 --split-per-abi --config-only
+          if grep -q dev.flutter.plugins.integration_test android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java; then
+            echo "Release plugin registration unexpectedly includes integration_test" >&2
+            exit 1
+          fi
           cd android
           mise exec -- ./gradlew --stop
           mise exec -- ./gradlew :app:testReleaseUnitTest -x :app:compileFlutterBuildRelease --max-workers=4 --no-daemon
