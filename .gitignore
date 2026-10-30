@@ -44,5 +44,11 @@ credentials*
 /server/uploads/
 /server/www/
 /deployment/
-*.sqlite*
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
 *.db
