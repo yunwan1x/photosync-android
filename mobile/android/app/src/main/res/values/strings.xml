@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="memory_widget_title">Memories</string>
+  <string name="random_widget_title">Random</string>
+
+  <string name="memory_widget_description">See memories from Immich.</string>
+  <string name="random_widget_description">View a random image from your library or a specific album.</string>
+
+  <string name="bg_downloader_notification_channel_name">Uploads and downloads</string>
+  <string name="bg_downloader_notification_channel_description">Progress updates for uploads and downloads</string>
+
+  <string name="background_worker_notification_channel_name">Background backup</string>
+  <string name="upload_progress_channel_name">Backup progress</string>
+  <string name="upload_progress_channel_description">Queue and file progress for background backup</string>
+  <string name="upload_progress_title">PhotoSync is backing up</string>
+  <string name="upload_progress_summary">%1$d of %2$d backed up, %3$d remaining</string>
+  <string name="upload_progress_queue">Current queue: %1$d/%2$d processed, %3$d queued, %4$d retrying, %5$d failed</string>
+  <string name="upload_progress_file">%1$s · %2$s / %3$s</string>
+  <string name="upload_progress_finished">PhotoSync backup complete</string>
+  <string name="upload_progress_batch_finished">Current backup batch complete</string>
+  <string name="upload_progress_finished_with_failures">PhotoSync backup finished with %1$d failed</string>
+</resources>

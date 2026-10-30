@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="upload_progress_channel_name">备份进度</string>
+  <string name="upload_progress_channel_description">显示后台备份的队列和文件进度</string>
+  <string name="upload_progress_title">PhotoSync 正在备份</string>
+  <string name="upload_progress_summary">已备份 %1$d/%2$d，剩余 %3$d</string>
+  <string name="upload_progress_queue">本轮已处理 %1$d/%2$d，排队 %3$d，重试 %4$d，失败 %5$d</string>
+  <string name="upload_progress_file">%1$s · %2$s / %3$s</string>
+  <string name="upload_progress_finished">PhotoSync 备份完成</string>
+  <string name="upload_progress_batch_finished">本轮备份完成，等待继续</string>
+  <string name="upload_progress_finished_with_failures">PhotoSync 备份完成，%1$d 个失败</string>
+</resources>

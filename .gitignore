@@ -1,0 +1,32 @@
+# Build output and local state
+**/build/
+**/.dart_tool/
+**/.gradle/
+**/.cxx/
+**/.pub-cache/
+**/.flutter-plugins*
+**/.packages
+artifacts/
+*.apk
+*.aab
+*.idsig
+*.log
+# Private signing keys, credentials and machine paths
+**/key.properties
+**/local.properties
+*.jks
+*.keystore
+*.p12
+*.pem
+.env
+.env.*
+credentials*
+**/google-services.json
+.DS_Store
+
+# Kotlin/IDE caches
+**/.kotlin/
+**/.idea/
+
+# Pigeon/Flutter can regenerate iOS stubs, Android export excludes them
+/mobile/ios/

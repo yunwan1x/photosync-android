@@ -1,0 +1,9 @@
+experimental_monorepo_root = true
+[monorepo]
+config_roots = ["mobile"]
+[tools]
+java = "21.0.2"
+[settings]
+experimental = true
+[tasks."i18n:format-fix"]
+run = "python3 scripts/validate-i18n.py"
