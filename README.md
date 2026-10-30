@@ -36,7 +36,7 @@ mise exec -- flutter build apk --release --target-platform android-arm64 --split
 - `scripts/`：独立 Android 构建脚本与翻译校验。
 - `UPSTREAM.md`、`LICENSE`：来源和 AGPL-3.0 许可证。
 
-Android 显示版本使用日期构建号；当前为 **2026100804**。不包含业务数据、账号、生产配置、SDK 安装目录、APK 或旧 Git 历史。
+Android 显示版本使用日期构建号；当前为 **2026103001**。不包含业务数据、账号、生产配置、SDK 安装目录、APK 或旧 Git 历史。
 
 ## 服务端
 
