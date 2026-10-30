@@ -8,6 +8,10 @@ on:
         type: choice
         default: all
         options: [all, android, android-tests]
+      verify_only:
+        description: Build and test Android without creating a release or pushing images
+        type: boolean
+        default: false
       tag:
         description: Release tag (e.g. v2026.10.30.1)
         required: true
@@ -42,6 +46,7 @@ jobs:
           TAG_INPUT: ${{ inputs.tag }}
           BUILD_INPUT: ${{ inputs.build_number }}
           COMPONENT: ${{ inputs.component || 'all' }}
+          VERIFY_ONLY: ${{ inputs.verify_only || false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -53,6 +58,10 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "build_number=$number" >> "$GITHUB_OUTPUT"
           source_sha="$GITHUB_SHA"
+          if [[ "$VERIFY_ONLY" == true ]]; then
+            echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [[ "$COMPONENT" == android* ]]; then
             gh release view "$tag" --json isDraft,targetCommitish > /tmp/release-state.json
             jq -e '.isDraft == true' /tmp/release-state.json >/dev/null
@@ -69,6 +78,11 @@ jobs:
           fi
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
   android:
+    name: Android ${{ matrix.stage }}
+    strategy:
+      fail-fast: false
+      matrix:
+        stage: [apk, tests]
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -80,15 +94,31 @@ jobs:
       ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
-      GRADLE_OPTS: -Dorg.gradle.workers.max=2 -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4096m -Dorg.gradle.project.kotlin.compiler.execution.strategy=in-process
+      GRADLE_OPTS: -Dorg.gradle.workers.max=4 -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx6144m -Dorg.gradle.project.kotlin.compiler.execution.strategy=in-process
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
-      - name: Free disk space while keeping Android command-line tools
+      - name: Record runner resources
+        run: |
+          echo "CPUs: $(nproc)"
+          free -h
+          df -h /
+      - name: Free disk space while retaining required Android SDK components
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL
-          sudo rm -rf "$ANDROID_HOME/emulator" "$ANDROID_HOME/system-images" "$ANDROID_HOME/ndk" "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
+          sudo rm -rf "$ANDROID_HOME/emulator" "$ANDROID_HOME/system-images"
+          # Retain installed versions the app/plugins need; remove only unused versions.
+          sudo env ANDROID_HOME="$ANDROID_HOME" python3 - <<'PYSDK'
+          import os, pathlib, shutil
+          sdk=pathlib.Path(os.environ['ANDROID_HOME'])
+          keep={'ndk': {'28.2.13676358'}, 'platforms': {'android-33','android-34','android-35','android-36'}, 'build-tools': {'35.0.0','36.0.0'}}
+          for family, versions in keep.items():
+              if (sdk/family).exists():
+                  for entry in (sdk/family).iterdir():
+                      if entry.is_dir() and entry.name not in versions:
+                          shutil.rmtree(entry)
+          PYSDK
           docker image prune -af
           df -h /
       - name: Restore toolchain and dependency cache
@@ -101,6 +131,16 @@ jobs:
             ~/.gradle/caches/modules-2
             ~/.gradle/wrapper
           key: android-deps-v1-${{ runner.os }}-${{ hashFiles('mobile/pubspec.lock', 'mobile/android/gradle/libs.versions.toml') }}
+      - name: Restore Gradle compilation cache
+        id: compilation
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.gradle/caches/build-cache-1
+            ~/.gradle/caches/8.14/transforms
+          key: android-compile-v2-${{ runner.os }}-${{ matrix.stage }}-${{ hashFiles('mobile/android/gradle/libs.versions.toml', 'mobile/android/gradle/wrapper/gradle-wrapper.properties', 'mobile/android/gradle.properties', 'mobile/android/app/build.gradle', 'mobile/pubspec.lock') }}-${{ needs.prepare.outputs.source_sha }}
+          restore-keys: |
+            android-compile-v2-${{ runner.os }}-${{ matrix.stage }}-${{ hashFiles('mobile/android/gradle/libs.versions.toml', 'mobile/android/gradle/wrapper/gradle-wrapper.properties', 'mobile/android/gradle.properties', 'mobile/android/app/build.gradle', 'mobile/pubspec.lock') }}-
       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
           install: false
@@ -124,10 +164,10 @@ jobs:
           (yes || true) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0'
       - name: Generate and build arm64 release
-        if: inputs.component != 'android-tests'
+        if: matrix.stage == 'apk' && inputs.component != 'android-tests'
         run: ./scripts/build-android.sh
-      - name: Recover existing draft APK and generate test inputs
-        if: inputs.component == 'android-tests'
+      - name: Recover existing draft APK
+        if: matrix.stage == 'apk' && inputs.component == 'android-tests'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
@@ -136,17 +176,22 @@ jobs:
           mkdir -p artifacts/releases
           gh release download "$TAG" --pattern 'photosync-android-arm64-v8a-latest.apk' --pattern SHA256SUMS --dir artifacts/releases
           (cd artifacts/releases && sha256sum --check SHA256SUMS)
-          cd mobile
+      - name: Generate test inputs
+        if: matrix.stage == 'tests'
+        working-directory: mobile
+        run: |
           mise exec -- flutter pub get
           mise run i18n:loader
           mise run i18n:keys
           for input in pigeon/*.dart; do mise exec -- dart run pigeon --input "$input"; done
           mise exec -- dart run build_runner build --delete-conflicting-outputs
       - name: Verify release APK and upload to draft
+        if: matrix.stage == 'apk'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
           BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
+          VERIFY_ONLY: ${{ inputs.verify_only || false }}
         run: |
           set -euo pipefail
           apk=artifacts/releases/photosync-android-arm64-v8a-latest.apk
@@ -158,9 +203,11 @@ jobs:
           grep -q "versionCode='$((10#$BUILD_NUMBER + 2000))'" /tmp/apk-badging.txt
           grep -qx "native-code: 'arm64-v8a'" /tmp/apk-badging.txt
           (cd artifacts/releases && sha256sum photosync-android-arm64-v8a-latest.apk > SHA256SUMS)
-          gh release upload "$TAG" "$apk" artifacts/releases/SHA256SUMS --clobber
+          if [[ "$VERIFY_ONLY" != true ]]; then
+            gh release upload "$TAG" "$apk" artifacts/releases/SHA256SUMS --clobber
+          fi
       - name: Save dependency cache before tests
-        if: steps.dependencies.outputs.cache-hit != 'true'
+        if: matrix.stage == 'apk' && steps.dependencies.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
@@ -170,21 +217,30 @@ jobs:
             ~/.gradle/wrapper
           key: ${{ steps.dependencies.outputs.cache-primary-key }}
       - name: Test Flutter and Android native code
+        if: matrix.stage == 'tests'
         working-directory: mobile
         run: |
           # Flutter tests register dev-only integration_test; regenerate production
           # registration and run release native tests before Flutter tests.
-          mise exec -- flutter build apk --release --target-platform android-arm64 --split-per-abi --config-only
+          mise exec -- flutter build apk --release --target-platform android-arm64 --split-per-abi --config-only --no-pub
           cd android
           mise exec -- ./gradlew --stop
-          mise exec -- ./gradlew :app:testReleaseUnitTest -x :app:compileFlutterBuildRelease --max-workers=2 --no-daemon
+          mise exec -- ./gradlew :app:testReleaseUnitTest -x :app:compileFlutterBuildRelease --max-workers=4 --no-daemon
           cd ..
-          mise exec -- flutter test --concurrency=2 --reporter=expanded
+          mise exec -- flutter test --concurrency=4 --reporter=expanded
+      - name: Save Gradle compilation cache
+        if: success() && steps.compilation.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.gradle/caches/build-cache-1
+            ~/.gradle/caches/8.14/transforms
+          key: ${{ steps.compilation.outputs.cache-primary-key }}
       - name: Remove private signing material
         if: always()
         run: rm -f mobile/android/key.jks mobile/android/key.properties
   images:
-    if: inputs.component != 'android' && inputs.component != 'android-tests'
+    if: inputs.verify_only != true && inputs.component != 'android' && inputs.component != 'android-tests'
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -267,7 +323,7 @@ jobs:
           docker logout || true
   publish:
     needs: [prepare, android, images]
-    if: always() && needs.prepare.result == 'success' && needs.android.result == 'success' && (needs.images.result == 'success' || ((inputs.component == 'android' || inputs.component == 'android-tests') && needs.images.result == 'skipped'))
+    if: always() && inputs.verify_only != true && needs.prepare.result == 'success' && needs.android.result == 'success' && (needs.images.result == 'success' || ((inputs.component == 'android' || inputs.component == 'android-tests') && needs.images.result == 'skipped'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
