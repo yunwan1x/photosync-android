@@ -65,4 +65,6 @@ docker build --file server/Dockerfile --tag changhui/photosync:latest .
 
 所需仓库 Secrets：`DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`、`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`、`ANDROID_STORE_PASSWORD`。签名必须延续现有密钥，不允许缺少密钥时自动使用临时签名。APK 当前沿用已有开发签名。不要在日志输出 Secrets。
 
-流程只构建、测试、推送镜像和创建 Release，不连接或替换 NAS / 服务器上的服务。使用标准 Ubuntu runner，不上传 Actions 构建缓存或 Docker tar 包；私有仓库仍消耗账号的 Actions 免费分钟额度，超额计费取决于账号预算。
+流程只构建、测试、推送镜像和创建 Release，不连接或替换 NAS / 服务器上的服务。使用标准 Ubuntu runner，只缓存公开工具链和依赖，不缓存签名、业务数据或 Docker tar 包；私有仓库仍消耗账号的 Actions 免费分钟额度，超额计费取决于账号预算。
+
+APK 重试可选 `component=android`：只针对已有草稿的固定源码提交重建 APK，校验并复用该草稿中已经构建通过的两个镜像摘要；全部测试通过后才发布。编译阶段限制 Gradle / Kotlin 内存与进程并行，编译结束前先上传到草稿并保存依赖缓存，运行测试前释放 Gradle 进程，防止重复 JVM 累积内存。缓存保持默认 10 GiB 上限，不启用额外付费缓存容量。

@@ -3,6 +3,11 @@ run-name: Release ${{ inputs.tag || github.ref_name }}
 on:
   workflow_dispatch:
     inputs:
+      component:
+        description: all builds everything; android retries a draft using its existing verified images
+        type: choice
+        default: all
+        options: [all, android]
       tag:
         description: Release tag (e.g. v2026.10.30.1)
         required: true
@@ -27,6 +32,7 @@ jobs:
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       build_number: ${{ steps.release.outputs.build_number }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Validate version and prepare draft
@@ -35,6 +41,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_INPUT: ${{ inputs.tag }}
           BUILD_INPUT: ${{ inputs.build_number }}
+          COMPONENT: ${{ inputs.component || 'all' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -45,12 +52,22 @@ jobs:
           [[ "$number" =~ ^20[0-9]{8}$ ]] && ((10#$number + 2000 < 2147483647)) || { echo 'Invalid Android build number'; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "build_number=$number" >> "$GITHUB_OUTPUT"
-          if gh release view "$tag" --json isDraft > /tmp/release-state.json 2>/dev/null; then
+          source_sha="$GITHUB_SHA"
+          if [[ "$COMPONENT" == android ]]; then
+            gh release view "$tag" --json isDraft,targetCommitish > /tmp/release-state.json
+            jq -e '.isDraft == true' /tmp/release-state.json >/dev/null
+            source_sha=$(jq -r .targetCommitish /tmp/release-state.json)
+            [[ "$source_sha" =~ ^[a-f0-9]{40}$ ]]
+            mkdir /tmp/image-check
+            gh release download "$tag" --pattern '*-image.json' --dir /tmp/image-check
+            jq -se --arg sha "$source_sha" 'length==2 and all(.[]; .commit==$sha and (.digest | contains("@sha256:")))' /tmp/image-check/server-image.json /tmp/image-check/machine-learning-image.json >/dev/null
+          elif gh release view "$tag" --json isDraft > /tmp/release-state.json 2>/dev/null; then
             jq -e '.isDraft == true' /tmp/release-state.json >/dev/null || { echo 'Published releases cannot be overwritten'; exit 1; }
-            gh release edit "$tag" --target "$GITHUB_SHA"
+            gh release edit "$tag" --target "$source_sha"
           else
-            gh release create "$tag" --target "$GITHUB_SHA" --draft --title "PhotoSync $tag" --notes 'Build in progress. The release is published only after all three components pass.'
+            gh release create "$tag" --target "$source_sha" --draft --title "PhotoSync $tag" --notes 'Build in progress. The release is published only after all three components pass.'
           fi
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
   android:
     needs: prepare
     runs-on: ubuntu-24.04
@@ -63,14 +80,27 @@ jobs:
       ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+      GRADLE_OPTS: -Dorg.gradle.workers.max=2 -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4096m -Dorg.gradle.project.kotlin.compiler.execution.strategy=in-process
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
       - name: Free disk space while keeping Android command-line tools
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL
           sudo rm -rf "$ANDROID_HOME/emulator" "$ANDROID_HOME/system-images" "$ANDROID_HOME/ndk" "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
           docker image prune -af
           df -h /
+      - name: Restore toolchain and dependency cache
+        id: dependencies
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.local/share/mise/installs
+            ~/.pub-cache
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper
+          key: android-deps-v1-${{ runner.os }}-${{ hashFiles('mobile/pubspec.lock', 'mobile/android/gradle/libs.versions.toml') }}
       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
           install: false
@@ -95,12 +125,6 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0'
       - name: Generate and build arm64 release
         run: ./scripts/build-android.sh
-      - name: Test Flutter and Android native code
-        working-directory: mobile
-        run: |
-          mise exec -- flutter test --concurrency=2 --reporter=expanded
-          cd android
-          mise exec -- ./gradlew :app:testReleaseUnitTest -x :app:compileFlutterBuildRelease --max-workers=2 --no-daemon
       - name: Verify release APK and upload to draft
         env:
           GH_TOKEN: ${{ github.token }}
@@ -118,10 +142,30 @@ jobs:
           grep -qx "native-code: 'arm64-v8a'" /tmp/apk-badging.txt
           (cd artifacts/releases && sha256sum photosync-android-arm64-v8a-latest.apk > SHA256SUMS)
           gh release upload "$TAG" "$apk" artifacts/releases/SHA256SUMS --clobber
+      - name: Save dependency cache before tests
+        if: steps.dependencies.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.local/share/mise/installs
+            ~/.pub-cache
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper
+          key: ${{ steps.dependencies.outputs.cache-primary-key }}
+      - name: Test Flutter and Android native code
+        working-directory: mobile
+        run: |
+          cd android
+          mise exec -- ./gradlew --stop
+          cd ..
+          mise exec -- flutter test --concurrency=2 --reporter=expanded
+          cd android
+          mise exec -- ./gradlew :app:testReleaseUnitTest -x :app:compileFlutterBuildRelease --max-workers=2 --no-daemon
       - name: Remove private signing material
         if: always()
         run: rm -f mobile/android/key.jks mobile/android/key.properties
   images:
+    if: inputs.component != 'android'
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -133,6 +177,8 @@ jobs:
         component: [server, machine-learning]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
       - name: Free unused hosted runner disk space
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost
@@ -184,6 +230,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
           COMPONENT: ${{ matrix.component }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
         run: |
           set -euo pipefail
           test -n "$DOCKER_TOKEN"
@@ -192,7 +239,7 @@ jobs:
           docker push "$image"
           docker manifest inspect "$image" >/tmp/remote-manifest.json
           digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")
-          jq -n --arg image "$image" --arg digest "$digest" --arg commit "$GITHUB_SHA" '{image:$image,digest:$digest,commit:$commit,platform:"linux/amd64"}' > "$COMPONENT-image.json"
+          jq -n --arg image "$image" --arg digest "$digest" --arg commit "$SOURCE_SHA" '{image:$image,digest:$digest,commit:$commit,platform:"linux/amd64"}' > "$COMPONENT-image.json"
           gh release upload "$TAG" "$COMPONENT-image.json" --clobber
       - name: Cleanup test container and registry session
         if: always()
@@ -201,24 +248,28 @@ jobs:
           docker logout || true
   publish:
     needs: [prepare, android, images]
+    if: always() && needs.prepare.result == 'success' && needs.android.result == 'success' && (needs.images.result == 'success' || (inputs.component == 'android' && needs.images.result == 'skipped'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
       - name: Verify all release assets and publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
           BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
         run: |
           set -euo pipefail
           mkdir release-check
           cd release-check
           gh release download "$TAG" --pattern 'photosync-android-arm64-v8a-latest.apk' --pattern 'SHA256SUMS' --pattern '*-image.json'
           sha256sum --check SHA256SUMS
-          jq -e --arg sha "$GITHUB_SHA" '.commit==$sha and (.digest | contains("@sha256:"))' server-image.json machine-learning-image.json >/dev/null
+          jq -se --arg sha "$SOURCE_SHA" 'length==2 and all(.[]; .commit==$sha and (.digest | contains("@sha256:")))' server-image.json machine-learning-image.json >/dev/null
           cat > notes.md <<EOF
           Android arm64、服务端与 CPU ML 构建和验证均通过。
 
@@ -226,7 +277,7 @@ jobs:
           - 服务端：\`changhui/photosync:latest\`。
           - ML：\`changhui/photosync-machine-learning:latest\`，包含并校验默认模型。
           - Docker 平台：linux/amd64；精确镜像摘要见附件 JSON。
-          - 源码提交：$GITHUB_SHA。
+          - 源码提交：$SOURCE_SHA。
           - SHA256SUMS 校验 APK；部署前请自行备份数据。本次发布不会替换现有 NAS 服务。
           EOF
           gh release edit "$TAG" --draft=false --latest --notes-file notes.md
