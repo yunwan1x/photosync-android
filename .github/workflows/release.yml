@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       component:
-        description: all builds everything; android retries a draft using its existing verified images
+        description: all builds everything; android retries APK; android-tests verifies an existing draft APK and reruns tests
         type: choice
         default: all
-        options: [all, android]
+        options: [all, android, android-tests]
       tag:
         description: Release tag (e.g. v2026.10.30.1)
         required: true
@@ -53,7 +53,7 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "build_number=$number" >> "$GITHUB_OUTPUT"
           source_sha="$GITHUB_SHA"
-          if [[ "$COMPONENT" == android ]]; then
+          if [[ "$COMPONENT" == android* ]]; then
             gh release view "$tag" --json isDraft,targetCommitish > /tmp/release-state.json
             jq -e '.isDraft == true' /tmp/release-state.json >/dev/null
             source_sha=$(jq -r .targetCommitish /tmp/release-state.json)
@@ -124,7 +124,24 @@ jobs:
           (yes || true) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0'
       - name: Generate and build arm64 release
+        if: inputs.component != 'android-tests'
         run: ./scripts/build-android.sh
+      - name: Recover existing draft APK and generate test inputs
+        if: inputs.component == 'android-tests'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/releases
+          gh release download "$TAG" --pattern 'photosync-android-arm64-v8a-latest.apk' --pattern SHA256SUMS --dir artifacts/releases
+          (cd artifacts/releases && sha256sum --check SHA256SUMS)
+          cd mobile
+          mise exec -- flutter pub get
+          mise run i18n:loader
+          mise run i18n:keys
+          for input in pigeon/*.dart; do mise exec -- dart run pigeon --input "$input"; done
+          mise exec -- dart run build_runner build --delete-conflicting-outputs
       - name: Verify release APK and upload to draft
         env:
           GH_TOKEN: ${{ github.token }}
@@ -155,17 +172,19 @@ jobs:
       - name: Test Flutter and Android native code
         working-directory: mobile
         run: |
+          # Flutter tests register dev-only integration_test; regenerate production
+          # registration and run release native tests before Flutter tests.
+          mise exec -- flutter build apk --release --target-platform android-arm64 --split-per-abi --config-only
           cd android
           mise exec -- ./gradlew --stop
+          mise exec -- ./gradlew :app:testReleaseUnitTest -x :app:compileFlutterBuildRelease --max-workers=2 --no-daemon
           cd ..
           mise exec -- flutter test --concurrency=2 --reporter=expanded
-          cd android
-          mise exec -- ./gradlew :app:testReleaseUnitTest -x :app:compileFlutterBuildRelease --max-workers=2 --no-daemon
       - name: Remove private signing material
         if: always()
         run: rm -f mobile/android/key.jks mobile/android/key.properties
   images:
-    if: inputs.component != 'android'
+    if: inputs.component != 'android' && inputs.component != 'android-tests'
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -248,7 +267,7 @@ jobs:
           docker logout || true
   publish:
     needs: [prepare, android, images]
-    if: always() && needs.prepare.result == 'success' && needs.android.result == 'success' && (needs.images.result == 'success' || (inputs.component == 'android' && needs.images.result == 'skipped'))
+    if: always() && needs.prepare.result == 'success' && needs.android.result == 'success' && (needs.images.result == 'success' || ((inputs.component == 'android' || inputs.component == 'android-tests') && needs.images.result == 'skipped'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
