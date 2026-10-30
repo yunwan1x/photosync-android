@@ -1,5 +1,7 @@
 # 服务端与 Android 联调验证（2026-10-30）
 
+> 本文记录早先的本地构建与联调；当前云端发布产物、签名和校验值以 `CI_RELEASE.md` 及 GitHub Release 为准。
+
 本次基于新仓库中的源码重新编译和测试。原 Photos 目录及生产 Immich 数据未修改；NAS 生产 Immich 和 TaleBook 持续运行。
 
 ## 范围与结果

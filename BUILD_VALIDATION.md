@@ -1,5 +1,7 @@
 # Android 构建验证
 
+> 本文记录早先的本地构建与联调；当前云端发布产物、签名和校验值以 `CI_RELEASE.md` 及 GitHub Release 为准。
+
 - 日期：2026-10-30。
 - 源码提交：`d9db87f71a5690bf47e388e963f23cf005b1e042`。
 - 从本仓库独立目录执行 `./scripts/build-android.sh`，翻译、Pigeon、build_runner 与 Gradle assembleRelease 全部通过。

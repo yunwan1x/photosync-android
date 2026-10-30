@@ -68,3 +68,5 @@ docker build --file server/Dockerfile --tag changhui/photosync:latest .
 流程只构建、测试、推送镜像和创建 Release，不连接或替换 NAS / 服务器上的服务。使用标准 Ubuntu runner，只缓存公开工具链和依赖，不缓存签名、业务数据或 Docker tar 包；私有仓库仍消耗账号的 Actions 免费分钟额度，超额计费取决于账号预算。
 
 APK 重试可选 `component=android`：只针对已有草稿的固定源码提交重建 APK，校验并复用该草稿中已经构建通过的两个镜像摘要；全部测试通过后才发布。编译阶段限制 Gradle / Kotlin 内存与进程并行，编译结束前先上传到草稿并保存依赖缓存，运行测试前释放 Gradle 进程，防止重复 JVM 累积内存。缓存保持默认 10 GiB 上限，不启用额外付费缓存容量。
+
+如果 APK 已成功上传草稿而仅测试失败，可选 `component=android-tests`：从草稿下载 APK 并校验原签名、版本、架构与 SHA256，针对草稿固定源码重新生成测试输入、运行原生 Release 和 Flutter 测试，不重复编译 APK 或镜像。原生测试在 Flutter 测试之前执行，防止 dev-only 插件注册混入 Release。三个模式均禁止覆盖已发布版本。
