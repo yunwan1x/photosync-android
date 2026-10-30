@@ -65,8 +65,18 @@ docker build --file server/Dockerfile --tag changhui/photosync:latest .
 
 所需仓库 Secrets：`DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`、`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`、`ANDROID_STORE_PASSWORD`。签名必须延续现有密钥，不允许缺少密钥时自动使用临时签名。APK 当前沿用已有开发签名。不要在日志输出 Secrets。
 
-流程只构建、测试、推送镜像和创建 Release，不连接或替换 NAS / 服务器上的服务。使用标准 Ubuntu runner，只缓存公开工具链和依赖，不缓存签名、业务数据或 Docker tar 包；私有仓库仍消耗账号的 Actions 免费分钟额度，超额计费取决于账号预算。
+流程只构建、测试、推送镜像和创建 Release，不连接或替换 NAS / 服务器上的服务。仓库现为公开，使用标准 Ubuntu 24.04 runner（4 vCPU、16GB RAM）；标准公开仓库 runner 免费。只缓存公开工具链、依赖与 Gradle 编译结果，不缓存签名、业务数据或 Docker tar 包。
 
-APK 重试可选 `component=android`：只针对已有草稿的固定源码提交重建 APK，校验并复用该草稿中已经构建通过的两个镜像摘要；全部测试通过后才发布。编译阶段限制 Gradle / Kotlin 内存与进程并行，编译结束前先上传到草稿并保存依赖缓存，运行测试前释放 Gradle 进程，防止重复 JVM 累积内存。缓存保持默认 10 GiB 上限，不启用额外付费缓存容量。
+APK 重试可选 `component=android`：只针对已有草稿的固定源码提交重建 APK，校验并复用该草稿中已经构建通过的两个镜像摘要；全部测试通过后才发布。APK 与测试使用独立 runner 并行；Gradle 最多 4 个 worker、6 GiB 堆，Kotlin 使用进程内编译。原生 Release 测试先于 Flutter 测试运行，避免开发插件注册混入 Release。缓存保持默认 10 GiB 上限，不启用额外付费缓存容量。
 
 如果 APK 已成功上传草稿而仅测试失败，可选 `component=android-tests`：从草稿下载 APK 并校验原签名、版本、架构与 SHA256，针对草稿固定源码重新生成测试输入、运行原生 Release 和 Flutter 测试，不重复编译 APK 或镜像。原生测试在 Flutter 测试之前执行，防止 dev-only 插件注册混入 Release。三个模式均禁止覆盖已发布版本。
+
+### 构建性能与验证模式
+
+- 保留预装且仍需的 Android 平台 33–36、Build Tools 35/36 和 NDK 28.2.13676358，清理未使用版本、模拟器及其他大型工具，避免整套 SDK 删除后重装。
+- 工具链/依赖缓存与 Gradle 编译缓存分开；编译缓存按阶段、Gradle/依赖配置及源码提交保存，可从同配置的上一提交恢复。Gradle 自行检查任务输入，版本号变更仍会正确重建相关产物。
+- 勾选 `verify_only` 可验证完整 arm64 Release APK 和全部 Android/Flutter 测试，不创建草稿、不发布、不推送镜像；需要照常填写 tag/build number，但只是本轮验证的版本输入。
+- 正式发布仍必须等 APK、测试以及服务端/ML 镜像全部通过；优化不跳过测试或降低 Release 压缩和签名要求。
+- 缓存保持默认容量限制，不开启付费 runner 或额外付费缓存。首次编译缓存为空，后续命中效果以 Actions 实测为准。
+
+2026-10-30 实测：公开 runner 上 Gradle Release 构建从约 24 分 7 秒降至 11 分 26 秒；生成代码并构建 APK 合计 12 分 50 秒。原生与 Flutter 测试独立并行，均已通过。详细记录见 `CI_RELEASE.md`。
