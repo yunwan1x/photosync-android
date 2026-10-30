@@ -103,7 +103,8 @@ jobs:
         run: |
           set -euo pipefail
           apk=artifacts/releases/photosync-android-arm64-v8a-latest.apk
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk" | tee /tmp/apk-signature.txt
+          grep -q "certificate SHA-256 digest: a2397706509fc8a74c08489b9735f0a1fa9aa0a09fb2a49a72345f29a8b18b39" /tmp/apk-signature.txt
           "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$apk" > /tmp/apk-badging.txt
           grep -q "name='app.alextran.immich'" /tmp/apk-badging.txt
           grep -q "versionName='$BUILD_NUMBER'" /tmp/apk-badging.txt
@@ -134,10 +135,13 @@ jobs:
         if: matrix.component == 'server'
         run: |
           set -euo pipefail
-          docker build --file server/Dockerfile --tag changhui/photosync:latest .
           docker build --file server/Dockerfile --target server --tag photosync-ci-tests:local .
           docker run --rm photosync-ci-tests:local pnpm --filter immich test --run --maxWorkers=2
           docker run --rm photosync-ci-tests:local pnpm --filter immich check
+          # Prebuild memory-intensive stages in sequence on the standard runner.
+          docker build --file server/Dockerfile --target web --tag photosync-ci-web:local .
+          docker build --file server/Dockerfile --target plugins --tag photosync-ci-plugins:local .
+          docker build --file server/Dockerfile --tag changhui/photosync:latest .
       - name: Build CPU ML image with verified bundled models
         if: matrix.component == 'machine-learning'
         run: |
