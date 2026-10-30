@@ -136,8 +136,8 @@ jobs:
         run: |
           set -euo pipefail
           docker build --file server/Dockerfile --target server --tag photosync-ci-tests:local .
-          docker run --rm photosync-ci-tests:local pnpm --filter immich test --run --maxWorkers=2
-          docker run --rm photosync-ci-tests:local pnpm --filter immich check
+          docker run --rm --workdir /usr/src/app/server photosync-ci-tests:local node_modules/.bin/vitest --config test/vitest.config.mjs --run --maxWorkers=2
+          docker run --rm --workdir /usr/src/app/server photosync-ci-tests:local node_modules/.bin/tsc --noEmit
           # Prebuild memory-intensive stages in sequence on the standard runner.
           docker build --file server/Dockerfile --target web --tag photosync-ci-web:local .
           docker build --file server/Dockerfile --target plugins --tag photosync-ci-plugins:local .
